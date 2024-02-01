@@ -387,6 +387,12 @@ class TrainerCallback:
         """
         pass
 
+    def on_optimizer_step_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        """
+        Event called at the beginning of an optimizer step.
+        """
+        pass
+
 
 class CallbackHandler(TrainerCallback):
     """Internal class that just calls the list of callbacks in order."""
@@ -492,6 +498,9 @@ class CallbackHandler(TrainerCallback):
 
     def on_prediction_step(self, args: TrainingArguments, state: TrainerState, control: TrainerControl):
         return self.call_event("on_prediction_step", args, state, control)
+
+    def on_optimizer_step_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl):
+        return self.call_event("on_optimizer_step_begin", args, state, control)
 
     def call_event(self, event, args, state, control, **kwargs):
         for callback in self.callbacks:
