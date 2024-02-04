@@ -3594,13 +3594,13 @@ class Trainer:
             )
         )
 
-        self.log(output.metrics)
-
         if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
             # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
             xm.master_print(met.metrics_report())
 
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
+
+        self.log(output.metrics)  # Log here because callback may update metrics.
 
         self._memory_tracker.stop_and_update_metrics(output.metrics)
 
