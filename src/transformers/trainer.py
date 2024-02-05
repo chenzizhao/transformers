@@ -3600,6 +3600,12 @@ class Trainer:
 
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
 
+        keys_to_prefix = [k for k in output.metrics
+                          if not k.startswith(metric_key_prefix)]
+        for key in keys_to_prefix:
+            new_key = f"{metric_key_prefix}_{key}"
+            output.metrics[new_key] = output.metrics.pop(key)
+
         self.log(output.metrics)  # Log here because callback may update metrics.
 
         self._memory_tracker.stop_and_update_metrics(output.metrics)
@@ -3664,6 +3670,13 @@ class Trainer:
         )
 
         self.control = self.callback_handler.on_predict(self.args, self.state, self.control, output.metrics)
+
+        keys_to_prefix = [k for k in output.metrics
+                          if not k.startswith(metric_key_prefix)]
+        for key in keys_to_prefix:
+            new_key = f"{metric_key_prefix}_{key}"
+            output.metrics[new_key] = output.metrics.pop(key)
+
         self._memory_tracker.stop_and_update_metrics(output.metrics)
 
         return PredictionOutput(predictions=output.predictions, label_ids=output.label_ids, metrics=output.metrics)
