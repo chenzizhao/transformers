@@ -3366,7 +3366,9 @@ class Trainer:
             num_samples = observed_num_examples
 
         # Metrics!
-        if self.compute_metrics is not None and all_preds is not None and all_labels is not None:
+        # NOTE(czz) allow for preds only to compute_metrics
+        # if self.compute_metrics is not None and all_preds is not None and all_labels is not None:
+        if self.compute_metrics is not None and all_preds is not None:
             if args.include_inputs_for_metrics:
                 metrics = self.compute_metrics(
                     EvalPrediction(predictions=all_preds, label_ids=all_labels, inputs=all_inputs)
