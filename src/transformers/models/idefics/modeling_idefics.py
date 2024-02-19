@@ -747,6 +747,11 @@ class IdeficsDecoderLayer(nn.Module):
             use_cache=use_cache,
         )
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+
+        # MY CHANGE
+        temp_mask = torch.all(attention_mask[:, 0] < 0, dim=-1)
+        hidden_states[temp_mask] = 0
+
         hidden_states = residual + hidden_states
 
         # Fully Connected
@@ -889,6 +894,11 @@ class IdeficsGatedCrossAttentionLayer(nn.Module):
         hidden_states = nn.functional.dropout(hidden_states, p=self.config, training=self.training)
         # Fill in zeros for cross_attention hidden_states of tokens attending to no images
         hidden_states[cross_attention_gate == 0] = hidden_states[cross_attention_gate == 0].fill_(0)
+
+        # MY CHANGE  # this was meant to be the same as prev
+        temp_mask = torch.all(image_attention_mask[:, 0] < 0, dim=-1)
+        hidden_states[temp_mask] = 0
+
         hidden_states = residual + self.act_cross_attn(self.alpha_cross_attn) * hidden_states
 
         # Fully Connected
