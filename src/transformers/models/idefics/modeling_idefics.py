@@ -779,7 +779,13 @@ class IdeficsDecoderLayer(nn.Module):
             output_attentions=output_attentions,
             use_cache=use_cache,
         )
+
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+
+        # MY CHANGE
+        temp_mask = torch.all(attention_mask[:, 0] < 0, dim=-1)
+        hidden_states[temp_mask] = 0
+
         hidden_states = residual + hidden_states
 
         # Fully Connected
@@ -911,9 +917,18 @@ class IdeficsGatedCrossAttentionLayer(nn.Module):
             attention_mask=image_attention_mask,
             output_attentions=output_attentions,
         )
+
         hidden_states = nn.functional.dropout(hidden_states, p=self.config, training=self.training)
+
         # when there are no images the model is used in pure language mode
+        # https://github.com/huggingface/transformers/pull/26839/
+
+        # MY CHANGE
+        temp_mask = torch.all(image_attention_mask[:, 0] < 0, dim=-1)
+        hidden_states[temp_mask] = 0
+
         gate = 0 if no_images else 1
+
         hidden_states = residual + gate * self.act_cross_attn(self.alpha_cross_attn) * hidden_states
 
         # Fully Connected
