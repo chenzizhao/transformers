@@ -2709,14 +2709,7 @@ class Trainer:
             tr_loss -= tr_loss
 
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
-
-            if isinstance(self.optimizer, torch.optim.Optimizer):
-                logs["learning_rate"] = self._get_learning_rate()
-            else:
-                # NOTE(czz): log diff lr for diff components
-                lrs = self._get_learning_rate()
-                for k, lr in lrs.items():
-                    logs[f"learning_rate_{k}"] = lr
+            logs["learning_rate"] = self._get_learning_rate()
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
