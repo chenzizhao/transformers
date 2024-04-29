@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Dict, List, Optional, Tuple, Union
 
 import flax
@@ -58,15 +59,10 @@ class FlaxIdefics2VisionEmbeddings(nn.Module):
         self.position_embedding = nn.Embed(self.num_positions, self.embed_dim, embedding_init=nn.initializers.normal())
 
     def __call__(self, pixel_values: jnp.ndarray, patch_attention_mask: jnp.ndarray):
-        batch_size, _, max_im_h, max_im_w = pixel_values.shape
-
-        patch_embeds = self.patch_embedding(pixel_values)
-        embeddings = jnp.transpose(patch_embeds, (0, 2, 3, 1))
-        embeddings = jnp.reshape(embeddings, (batch_size, -1, self.embed_dim))
-
-        max_nb_patches_h, max_nb_patches_w = max_im_h // self.patch_size, max_im_w // self.patch_size
+        embeddings = self.patch_embedding(pixel_values)
+        batch_size, height, width, channels = embeddings.shape
+        embeddings = jnp.reshape(embeddings, (batch_size, height * width, channels))
         boundaries = jnp.arange(1 / self.num_patches_per_side, 1.0, 1 / self.num_patches_per_side)
-        position_ids = jnp.zeros((batch_size, max_nb_patches_h * max_nb_patches_w), dtype=jnp.int32)
 
         def compute_position_ids(p_attn_mask):
             nb_patches_h = jnp.sum(p_attn_mask[:, 0])
@@ -81,13 +77,13 @@ class FlaxIdefics2VisionEmbeddings(nn.Module):
             pos_ids = (bucket_coords_h[:, None] * self.num_patches_per_side + bucket_coords_w).flatten()
             return pos_ids[jnp.ravel(p_attn_mask)]
 
+        # (batch_size, max_nb_patches_h * max_nb_patches_w)
         position_ids = jax.vmap(compute_position_ids)(patch_attention_mask)
-        position_ids = jax.device_put(position_ids, pixel_values.device())
         embeddings = embeddings + self.position_embedding(position_ids)
         return embeddings
 
 
-# copied from FlaxCLIPVisionAttention
+# copied from FlaxCLIPAttention
 class FlaxIdefics2VisionAttention(nn.Module):
     config: Idefics2VisionConfig
     dtype: jnp.dtype = jnp.float32
@@ -105,10 +101,13 @@ class FlaxIdefics2VisionAttention(nn.Module):
         self.scale = self.head_dim**-0.5
         self.dropout = config.attention_dropout
 
-        self.k_proj = nn.Dense(self.embed_dim, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01))
-        self.v_proj = nn.Dense(self.embed_dim, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01))
-        self.q_proj = nn.Dense(self.embed_dim, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01))
-        self.out_proj = nn.Dense(self.embed_dim, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01))
+        # TODO(czz): check init
+        dense = partial(nn.Dense, use_bias=True, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01))
+
+        self.k_proj = dense(self.embed_dim)
+        self.v_proj = dense(self.embed_dim)
+        self.q_proj = dense(self.embed_dim)
+        self.out_proj = dense(self.embed_dim)
 
         # Ignore copy
         self.is_causal = False
@@ -126,17 +125,10 @@ class FlaxIdefics2VisionAttention(nn.Module):
         output_attentions: Optional[bool] = False,
     ) -> Tuple[jnp.ndarray, Optional[jnp.ndarray], Optional[Tuple[jnp.ndarray]]]:
         """Input shape: Batch x Time x Channel"""
-
-        batch_size, q_len, _ = hidden_states.shape
-
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
-
         # split heads
-        # query_states = query_states.reshape(batch_size, q_len, self.num_heads, self.head_dim).transpose((0, 2, 1, 3))
-        # key_states = key_states.reshape(batch_size, q_len, self.num_heads, self.head_dim).transpose((0, 2, 1, 3))
-        # value_states = value_states.reshape(batch_size, q_len, self.num_heads, self.head_dim).transpose((0, 2, 1, 3))
         query_states = self._split_heads(query_states)
         key_states = self._split_heads(key_states)
         value_states = self._split_heads(value_states)
@@ -181,12 +173,9 @@ class FlaxIdefics2VisionMLP(nn.Module):
     def setup(self):
         config = self.config
         self.activation_fn = ACT2FN[config.hidden_act]
-        self.fc1 = nn.Dense(
-            config.hidden_size, config.intermediate_size, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01)
-        )
-        self.fc2 = nn.Dense(
-            config.intermediate_size, config.hidden_size, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01)
-        )
+        dense = partial(nn.Dense, use_bias=True, dtype=self.dtype, kernel_init=nn.initializers.normal(0.01))
+        self.fc1 = dense(config.intermediate_size)
+        self.fc2 = dense(config.hidden_size)
 
     def __call__(self, hidden_states: jnp.ndarray) -> jnp.ndarray:
         hidden_states = self.fc1(hidden_states)
@@ -199,19 +188,16 @@ class FlaxIdefics2MLP(nn.Module):
     dtype: jnp.dtype = jnp.float32
     hidden_size: int
     intermediate_size: int
-    out_size: int
+    output_size: int
     hidden_act: str
 
     def setup(self):
-        self.gate_proj = nn.Dense(
-            self.hidden_size, self.intermediate_size, bias=False, kernel_init=nn.initializers.normal(0.01)
-        )
-        self.up_proj = nn.Dense(
-            self.hidden_size, self.intermediate_size, bias=False, kernel_init=nn.initializers.normal(0.01)
-        )
-        self.down_proj = nn.Dense(
-            self.intermediate_size, self.output_size, bias=False, kernel_init=nn.initializers.normal(0.01)
-        )
+        # TODO(czz): check init
+        dense = partial(nn.Dense, use_bias=False, dtype=self.dtype, kernel_init=nn.initializers.normal(0.02))
+
+        self.gate_proj = dense(self.intermediate_size)
+        self.up_proj = dense(self.intermediate_size)
+        self.down_proj = dense(self.output_size)
         self.act_fn = ACT2FN[self.hidden_act]
 
     def forward(self, x):
@@ -228,9 +214,11 @@ class FlaxIdefics2MultiheadAttentionPoolingHead(nn.Module):
         config = self.config
         self.probe = self.param("probe", nn.initializers.normal(), (1, 1, config.hidden_size))
         self.attention = nn.MultiHeadDotProductAttention(
-            config.hidden_size, config.num_attention_heads, batch_first=True
+            num_heads=config.num_attention_heads,
+            qkv_features=config.hidden_size,
+            # batch_first=True  # risk: mismatch of shapes
         )
-        self.layernorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.layernorm = nn.LayerNorm(epsilon=config.layer_norm_eps)
         # Ignore copy
         self.mlp = FlaxIdefics2MLP(
             hidden_size=config.hidden_size,
@@ -258,12 +246,11 @@ class FlaxIdefics2EncoderLayer(nn.Module):
 
     def setup(self):
         config = self.config
-
         self.embed_dim = config.hidden_size
         self.self_attn = FlaxIdefics2VisionAttention(config)
-        self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
+        self.layer_norm1 = nn.LayerNorm(epsilon=config.layer_norm_eps)
         self.mlp = FlaxIdefics2VisionMLP(config)
-        self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
+        self.layer_norm2 = nn.LayerNorm(epsilon=config.layer_norm_eps)
 
     # Copied from transformers.models.siglip.modeling_siglip.SiglipEncoderLayer.forward
     def __call__(
@@ -308,7 +295,7 @@ class FlaxIdefics2Encoder(nn.Module):
     # Ignore copy
     def __call__(
         self,
-        inputs_embeds,
+        inputs_embeds: jnp.ndarray,
         attention_mask: Optional[jnp.ndarray] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -320,31 +307,36 @@ class FlaxIdefics2Encoder(nn.Module):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        encoder_states = () if output_hidden_states else None
-        all_attentions = () if output_attentions else None
-
-        hidden_states = inputs_embeds
-        for encoder_layer in self.layers:
+        def step_fn(hidden_states, layer):
             if output_hidden_states:
-                encoder_states = encoder_states + (hidden_states,)
-            layer_outputs = encoder_layer(
+                encoder_states = (hidden_states,)
+            else:
+                encoder_states = None
+
+            layer_outputs = layer(
                 hidden_states,
                 attention_mask,
                 output_attentions=output_attentions,
             )
-
             hidden_states = layer_outputs[0]
 
             if output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
+                all_attentions = (layer_outputs[1],)
+            else:
+                all_attentions = None
+            return hidden_states, encoder_states, all_attentions
 
-        if output_hidden_states:
-            encoder_states = encoder_states + (hidden_states,)
+        initial_hidden_states = inputs_embeds
+        _, encoder_states, all_attentions = jax.lax.scan(step_fn, initial_hidden_states, self.layers)
+
+        last_hidden_state = encoder_states[-1]
+        encoder_states = encoder_states if output_attentions else None
+        all_attentions = all_attentions if output_attentions else None
 
         if not return_dict:
-            return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
+            return tuple(v for v in [last_hidden_state, encoder_states, all_attentions] if v is not None)
         return FlaxBaseModelOutput(
-            last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
+            last_hidden_state=last_hidden_state, hidden_states=encoder_states, attentions=all_attentions
         )
 
 
@@ -446,9 +438,50 @@ class FlaxIdefics2RMSNorm(nn.Module):
         return self.weight * jnp.asarray(hidden_states, dtype=self.dtype)
 
 
+# test with python -m tests.models.llama.test_modeling_flax_llama
+
+
 class FlaxIdefics2PerceiverAttention(nn.Module):
-    # TODO(czz): Idefics2PerceiverAttention
-    pass
+    # TODO(czz): Idefics2PerceiverAttention, refer to FlaxLlamaAttention
+
+    config: Idefics2Config
+    layer_idx: int = None
+    dtype: jnp.dtype = jnp.float32
+
+    def setup(self):
+        config = self.config
+        self.hidden_size = config.text_config.hidden_size
+        self.num_heads = config.perceiver_config.resampler_n_heads
+        self.head_dim = config.perceiver_config.resampler_head_dim
+        self.num_key_value_heads = config.perceiver_config.num_key_value_heads
+        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        self.attention_dropout = config.perceiver_config.attention_dropout
+
+        # TODO(czz): check init
+        dense = partial(nn.Dense, use_bias=False, dtype=self.dtype, kernel_init=nn.initializers.normal(0.02))
+
+        assert self.head_dim * self.num_heads == self.hidden_size
+        self.q_proj = dense(self.num_heads * self.head_dim)
+        self.k_proj = dense(self.num_key_value_heads * self.head_dim)
+        self.v_proj = dense(self.num_key_value_heads * self.head_dim)
+        self.o_proj = dense(self.hidden_size)
+
+        self.is_causal = False
+
+    def _split_heads(self, hidden_states: jnp.ndarray, num_heads: int, head_dim: int):
+        return hidden_states.reshape(hidden_states.shape[:2] + (num_heads, head_dim))
+
+    def __call__(
+        self,
+        latents: jnp.ndarray,
+        context: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
+        position_ids: Optional[jnp.ndarray] = None,
+        past_key_value: Optional[Tuple[jnp.ndarray]] = None,
+        output_attentions: bool = False,
+        use_cache: bool = False,
+    ) -> Tuple[jnp.ndarray, Optional[jnp.ndarray], Optional[Tuple[jnp.ndarray]]]:
+        pass
 
 
 class FlaxIdefics2PerceiverLayer(nn.Module):
