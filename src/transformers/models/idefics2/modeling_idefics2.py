@@ -1539,6 +1539,9 @@ class Idefics2Model(Idefics2PreTrainedModel):
         special_image_token_mask = input_ids == self.image_token_id
         new_inputs_embeds = inputs_embeds.clone()
         reshaped_image_hidden_states = image_hidden_states.view(-1, vision_hidden_size)
+        # MY CHANGE: BF16 compatibility
+        reshaped_image_hidden_states = reshaped_image_hidden_states.to(new_inputs_embeds.dtype)
+
         new_inputs_embeds[special_image_token_mask] = reshaped_image_hidden_states
         return new_inputs_embeds
 
