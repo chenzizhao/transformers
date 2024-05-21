@@ -656,7 +656,8 @@ class Trainer:
 
         # Label smoothing
         if self.args.label_smoothing_factor != 0:
-            self.label_smoother = LabelSmoother(epsilon=self.args.label_smoothing_factor)
+            ignore_index = getattr(self.args, "label_smoothing_ignore_index", -100)
+            self.label_smoother = LabelSmoother(epsilon=self.args.label_smoothing_factor, ignore_index=ignore_index)
         else:
             self.label_smoother = None
 
@@ -3280,7 +3281,9 @@ class Trainer:
             if model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
                 loss = self.label_smoother(outputs, labels, shift_labels=True)
             else:
-                loss = self.label_smoother(outputs, labels)
+                # NOTE(czz): MultitaskModel is wrapped multiple times and not recognized by Trainer. Manually force shifting labels for Seq2Seq.
+                shift_labels = getattr(self.args, "compute_loss_shift_labels", False)
+                loss = self.label_smoother(outputs, labels, shift_labels=shift_labels)
         else:
             if isinstance(outputs, dict) and "loss" not in outputs:
                 raise ValueError(
