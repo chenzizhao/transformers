@@ -27,7 +27,6 @@ if is_torch_available():
     import torch
 
     from transformers import (
-        SUPERPOINT_PRETRAINED_MODEL_ARCHIVE_LIST,
         SuperPointForKeypointDetection,
     )
 
@@ -121,6 +120,7 @@ class SuperPointModelTest(ModelTesterMixin, unittest.TestCase):
     test_resize_embeddings = False
     test_head_masking = False
     has_attentions = False
+    from_pretrained_id = "magic-leap-community/superpoint"
 
     def setUp(self):
         self.model_tester = SuperPointModelTester(self)
@@ -143,7 +143,7 @@ class SuperPointModelTest(ModelTesterMixin, unittest.TestCase):
         pass
 
     @unittest.skip(reason="SuperPointForKeypointDetection does not support input and output embeddings")
-    def test_model_common_attributes(self):
+    def test_model_get_set_embeddings(self):
         pass
 
     @unittest.skip(reason="SuperPointForKeypointDetection does not use feedforward chunking")
@@ -222,9 +222,8 @@ class SuperPointModelTest(ModelTesterMixin, unittest.TestCase):
 
     @slow
     def test_model_from_pretrained(self):
-        for model_name in SUPERPOINT_PRETRAINED_MODEL_ARCHIVE_LIST[:1]:
-            model = SuperPointForKeypointDetection.from_pretrained(model_name)
-            self.assertIsNotNone(model)
+        model = SuperPointForKeypointDetection.from_pretrained(self.from_pretrained_id)
+        self.assertIsNotNone(model)
 
     def test_forward_labels_should_be_none(self):
         config, inputs_dict = self.model_tester.prepare_config_and_inputs_for_common()
