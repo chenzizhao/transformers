@@ -133,6 +133,7 @@ FLAX_MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
 FLAX_MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES = OrderedDict(
     [
         ("vision-encoder-decoder", "FlaxVisionEncoderDecoderModel"),
+        ('idefics2', 'FlaxIdefics2Model'),
     ]
 )
 

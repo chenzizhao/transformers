@@ -45,18 +45,22 @@ class FlaxIdefics2VisionEmbeddings(nn.Module):
         self.image_size = self.config.image_size
         self.patch_size = self.config.patch_size
 
+        # has weights and bias
         self.patch_embedding = nn.Conv(
             self.embed_dim,
             kernel_size=(self.patch_size, self.patch_size),
             strides=(self.patch_size, self.patch_size),
             padding="VALID",
+            dtype=self.dtype,
             kernel_init=nn.initializers.normal(),
         )
 
         self.num_patches_per_side = self.image_size // self.patch_size
         self.num_patches = self.num_patches_per_side**2
         self.num_positions = self.num_patches
+        # has weights
         self.position_embedding = nn.Embed(self.num_positions, self.embed_dim, embedding_init=nn.initializers.normal())
+        self.position_ids = jnp.expand_dims(jnp.arange(0, self.num_positions, dtype="i4"), axis=0)
 
     def __call__(self, pixel_values: jnp.ndarray, patch_attention_mask: jnp.ndarray):
         embeddings = self.patch_embedding(pixel_values)
@@ -186,10 +190,10 @@ class FlaxIdefics2VisionMLP(nn.Module):
 
 class FlaxIdefics2MLP(nn.Module):
     dtype: jnp.dtype = jnp.float32
-    hidden_size: int
-    intermediate_size: int
-    output_size: int
-    hidden_act: str
+    # hidden_size: int
+    # intermediate_size: int
+    # output_size: int
+    # hidden_act: str
 
     def setup(self):
         # TODO(czz): check init
@@ -243,6 +247,7 @@ class FlaxIdefics2MultiheadAttentionPoolingHead(nn.Module):
 class FlaxIdefics2EncoderLayer(nn.Module):
     # TODO: double check if this is vision config or idefics2 config
     config: Idefics2VisionConfig
+    dtype: jnp.dtype = jnp.float32
 
     def setup(self):
         config = self.config
@@ -283,8 +288,8 @@ class FlaxIdefics2EncoderLayer(nn.Module):
 
 
 class FlaxIdefics2Encoder(nn.Module):
-    dtype: jnp.dtype = jnp.float32
     config: Idefics2VisionConfig
+    dtype: jnp.dtype = jnp.float32
 
     def setup(self):
         config = self.config
